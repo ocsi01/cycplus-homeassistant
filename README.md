@@ -43,7 +43,7 @@ flowchart LR
     A["🚴 Cycplus M2 Bike Computer<br>(BLE Nordic UART)"] -->|Bluetooth LE| B["📦 cycplus-bridge Container<br>(Bleak + FitParse)"]
     B -->|MQTT Discovery & States| C["📡 Mosquitto Broker"]
     B -->|Generates rides_geo.json| D["📂 HA www folder"]
-    B -->|"Cloud Sync (.fit)"| G["☁️ Google Drive<br>(Backup Folder)"]
+    B -->|Cloud Sync FIT Files| G["☁️ Google Drive<br>(Backup Folder)"]
     C -->|Auto-discovered entities| E["🏠 Home Assistant Core"]
     D -->|Serves /local/commute_map.html| F["📱 Lovelace Dashboard<br>(Google Maps / Leaflet)"]
     E --> F

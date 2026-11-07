@@ -23,7 +23,7 @@ Whenever you return home from a bike ride or commute, the bridge passively detec
   - Automatically registers battery level, free flash memory, total rides, last ride metrics, and connection state under Home Assistant devices.
 - 🗺️ **Interactive Google Maps / Satellite Dashboard Card:**
   - High-resolution interactive GPS map embedded into Lovelace dashboards via Leaflet.
-  - Instant layer switcher: **Google Hybrid**, **Google Streets**, **Google Satellite**, **Google Terrain**, and **OpenStreetMap**.
+  - Instant layer switcher: **Google Hybrid**, **Google Streets**, **Google Satellite**, and **Google Terrain**.
   - Dropdown menu to pick and analyze any past ride with start (🟢) and finish (🏁) markers, distance, duration, and average speed badges.
 - 📁 **Incremental & Reliable Transfers:**
   - Avoids re-downloading files that already exist on disk.

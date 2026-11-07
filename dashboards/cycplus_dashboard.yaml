@@ -43,7 +43,7 @@ views:
 
       - type: iframe
         title: 🗺️ GPS Route Map (Google Maps / Satellite)
-        url: /local/commute_map.html?v=2
+        url: /local/commute_map.html?v=3
         aspect_ratio: "4:5"
 
       - type: entities

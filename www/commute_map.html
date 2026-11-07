@@ -274,11 +274,6 @@
       attribution: '© Google Maps'
     });
 
-    const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '© OpenStreetMap'
-    });
-
     // Initialize Map
     function initMap() {
       map = L.map('map', {
@@ -294,8 +289,7 @@
         "🗺️ Google Hybrid": googleHybrid,
         "🚗 Google Streets": googleRoads,
         "🛰️ Google Satellite": googleSat,
-        "⛰️ Google Terrain": googleTerrain,
-        "🚲 OpenStreetMap": osm
+        "⛰️ Google Terrain": googleTerrain
       };
 
       L.control.layers(baseMaps, null, { position: 'bottomleft' }).addTo(map);
@@ -313,7 +307,6 @@
           toggleBtn.title = 'Switch to Satellite view';
         } else {
           map.removeLayer(googleRoads);
-          map.removeLayer(osm);
           map.removeLayer(googleTerrain);
           map.addLayer(googleHybrid);
           isSatellite = true;

@@ -1,0 +1,33 @@
+services:
+  cycplus-bridge:
+    build: .
+    container_name: cycplus-bridge
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    environment:
+      # Replace with your MQTT broker IP (e.g. Home Assistant host)
+      - MQTT_BROKER=192.168.1.22
+      - MQTT_PORT=1883
+      - MQTT_USER=ha_mqtt
+      - MQTT_PASS=hamqtt
+      # Replace with your Cycplus device name and Bluetooth MAC address
+      - TARGET_NAME=M2_XXXX
+      - TARGET_MAC=AA:BB:CC:11:22:33
+      - SCAN_INTERVAL_SECONDS=15
+      - DOWNLOAD_DIR=/app/rides
+      - WWW_DIR=/mnt/Container/hass/www
+      # Google Drive Backup (Optional: replace with your destination folder ID)
+      - GDRIVE_FOLDER_ID=YOUR_GOOGLE_DRIVE_FOLDER_ID
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/service_account.json
+    volumes:
+      # Host Bluetooth D-Bus socket
+      - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
+      # Storage for downloaded FIT activity files
+      - ./rides:/app/rides
+      # Home Assistant www directory for live GPS map data
+      - /mnt/Container/hass/www:/mnt/Container/hass/www
+      # Google Drive rclone config (recommended zero-GCP setup)
+      - ./rclone.conf:/app/rclone.conf:ro
+      # Google Drive Service Account credentials (optional alternative)
+      - ./service_account.json:/app/service_account.json:ro

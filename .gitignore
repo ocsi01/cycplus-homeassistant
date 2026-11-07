@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+rides/*.fit
+rides/
+rides_geo.json
+config.json
+.env
+.DS_Store

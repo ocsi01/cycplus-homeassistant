@@ -1,0 +1,19 @@
+{
+  "_comment": "Replace target_name, target_mac, broker IP, and folder_id with your own configuration",
+  "target_name": "M2_XXXX",
+  "target_mac": "AA:BB:CC:11:22:33",
+  "download_dir": "./rides",
+  "www_dir": "/mnt/Container/hass/www",
+  "mqtt": {
+    "broker": "192.168.1.22",
+    "port": 1883,
+    "username": "ha_mqtt",
+    "password": "hamqtt",
+    "topic_prefix": "cycplus_m2"
+  },
+  "scan_interval_seconds": 15,
+  "gdrive": {
+    "folder_id": "YOUR_GOOGLE_DRIVE_FOLDER_ID",
+    "credentials_file": "rclone.conf"
+  }
+}

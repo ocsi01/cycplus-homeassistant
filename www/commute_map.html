@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Cycplus M2 GPS Ride Tracking</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    :root {
+      --bg-glass: rgba(22, 27, 34, 0.88);
+      --border-glass: rgba(255, 255, 255, 0.15);
+      --text-main: #f0f6fc;
+      --text-muted: #8b949e;
+      --accent: #00d2ff;
+      --card-radius: 12px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #0d1117;
+      color: var(--text-main);
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 1;
+    }
+
+    /* Floating Control Bar */
+    .control-panel {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      right: 12px;
+      z-index: 1000;
+      background: var(--bg-glass);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--border-glass);
+      border-radius: var(--card-radius);
+      padding: 10px 14px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      max-width: 950px;
+      margin: 0 auto;
+    }
+
+    .selector-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1 1 280px;
+    }
+
+    .selector-group label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+
+    select#ride-select {
+      flex: 1;
+      background: rgba(13, 17, 23, 0.95);
+      border: 1px solid var(--border-glass);
+      color: #fff;
+      padding: 7px 10px;
+      border-radius: 8px;
+      font-size: 13px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    select#ride-select:focus {
+      border-color: var(--accent);
+    }
+
+    /* Stats Badges */
+    .stats-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .stat-badge {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+    }
+
+    .stat-badge .val {
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .stat-badge .unit {
+      color: var(--text-muted);
+      font-size: 11px;
+    }
+
+    .btn-action {
+      background: rgba(0, 210, 255, 0.15);
+      border: 1px solid rgba(0, 210, 255, 0.4);
+      color: #00d2ff;
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+      transition: background 0.2s, color 0.2s, border-color 0.2s;
+    }
+
+    .btn-action:hover {
+      background: rgba(0, 210, 255, 0.3);
+      border-color: #00d2ff;
+      color: #fff;
+    }
+
+    .actions-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    #status-overlay {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      background: rgba(0, 0, 0, 0.85);
+      color: #fff;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      pointer-events: none;
+      display: none;
+    }
+
+    .custom-marker {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.6);
+      font-size: 13px;
+      border: 2px solid #ffffff;
+    }
+
+    .marker-start {
+      background: #00e676;
+      width: 26px;
+      height: 26px;
+    }
+
+    .marker-end {
+      background: #ff1744;
+      width: 26px;
+      height: 26px;
+    }
+
+    .leaflet-control-layers {
+      background: var(--bg-glass) !important;
+      backdrop-filter: blur(10px) !important;
+      border: 1px solid var(--border-glass) !important;
+      border-radius: 8px !important;
+      color: var(--text-main) !important;
+      font-size: 12px !important;
+    }
+
+    .leaflet-bar a {
+      background-color: var(--bg-glass) !important;
+      border-color: var(--border-glass) !important;
+      color: #fff !important;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="map"></div>
+
+  <div class="control-panel">
+    <div class="selector-group">
+      <label for="ride-select">🚴 Ride:</label>
+      <select id="ride-select">
+        <option value="">Loading rides...</option>
+      </select>
+    </div>
+
+    <div class="stats-group" id="stats-panel" style="display: none;">
+      <div class="stat-badge">
+        <span>📍</span>
+        <span class="val" id="stat-dist">0.0</span>
+        <span class="unit">km</span>
+      </div>
+      <div class="stat-badge">
+        <span>⏱️</span>
+        <span class="val" id="stat-dur">0m</span>
+      </div>
+      <div class="stat-badge">
+        <span>⚡</span>
+        <span class="val" id="stat-spd">0.0</span>
+        <span class="unit">km/h</span>
+      </div>
+    </div>
+
+    <div class="actions-group">
+      <button class="btn-action" id="btn-toggle-layer" title="Toggle between Satellite and Street Map">
+        🗺️ Streets
+      </button>
+      <button class="btn-action" id="btn-recenter" title="Recenter route on map">
+        🎯 Recenter
+      </button>
+    </div>
+  </div>
+
+  <div id="status-overlay"></div>
+
+  <script>
+    let map;
+    let currentPolyline = null;
+    let currentOutline = null;
+    let startMarker = null;
+    let endMarker = null;
+    let ridesData = [];
+
+    // Map Tile Layers
+    const googleHybrid = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+      maxZoom: 20,
+      attribution: '© Google Maps'
+    });
+
+    const googleRoads = L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+      maxZoom: 20,
+      attribution: '© Google Maps'
+    });
+
+    const googleSat = L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+      maxZoom: 20,
+      attribution: '© Google Maps'
+    });
+
+    const googleTerrain = L.tileLayer('https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', {
+      maxZoom: 20,
+      attribution: '© Google Maps'
+    });
+
+    const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap'
+    });
+
+    // Initialize Map
+    function initMap() {
+      map = L.map('map', {
+        center: [52.3, 4.9],
+        zoom: 12,
+        layers: [googleHybrid],
+        zoomControl: false
+      });
+
+      L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+      const baseMaps = {
+        "🗺️ Google Hybrid": googleHybrid,
+        "🚗 Google Streets": googleRoads,
+        "🛰️ Google Satellite": googleSat,
+        "⛰️ Google Terrain": googleTerrain,
+        "🚲 OpenStreetMap": osm
+      };
+
+      L.control.layers(baseMaps, null, { position: 'bottomleft' }).addTo(map);
+
+      let isSatellite = true;
+      const toggleBtn = document.getElementById('btn-toggle-layer');
+
+      toggleBtn.addEventListener('click', () => {
+        if (isSatellite) {
+          map.removeLayer(googleHybrid);
+          map.removeLayer(googleSat);
+          map.addLayer(googleRoads);
+          isSatellite = false;
+          toggleBtn.innerHTML = '🛰️ Satellite';
+          toggleBtn.title = 'Switch to Satellite view';
+        } else {
+          map.removeLayer(googleRoads);
+          map.removeLayer(osm);
+          map.removeLayer(googleTerrain);
+          map.addLayer(googleHybrid);
+          isSatellite = true;
+          toggleBtn.innerHTML = '🗺️ Streets';
+          toggleBtn.title = 'Switch to Street map';
+        }
+      });
+
+      map.on('baselayerchange', (e) => {
+        if (e.name.includes('Satellite') || e.name.includes('Hybrid')) {
+          isSatellite = true;
+          toggleBtn.innerHTML = '🗺️ Streets';
+          toggleBtn.title = 'Switch to Street map';
+        } else {
+          isSatellite = false;
+          toggleBtn.innerHTML = '🛰️ Satellite';
+          toggleBtn.title = 'Switch to Satellite view';
+        }
+      });
+
+      document.getElementById('btn-recenter').addEventListener('click', () => {
+        if (currentPolyline) {
+          map.fitBounds(currentPolyline.getBounds(), { padding: [40, 40], animate: true });
+        }
+      });
+
+      loadRides();
+    }
+
+    function showStatus(text, duration = 3000) {
+      const el = document.getElementById('status-overlay');
+      el.textContent = text;
+      el.style.display = 'block';
+      if (duration > 0) {
+        setTimeout(() => { el.style.display = 'none'; }, duration);
+      }
+    }
+
+    async function loadRides() {
+      try {
+        showStatus('Loading GPS route data...', 0);
+        const resp = await fetch('/local/rides_geo.json?t=' + Date.now());
+        if (!resp.ok) {
+          throw new Error('HTTP ' + resp.status);
+        }
+        ridesData = await resp.json();
+        
+        const select = document.getElementById('ride-select');
+        select.innerHTML = '';
+
+        if (!ridesData || ridesData.length === 0) {
+          select.innerHTML = '<option value="">No recorded rides found</option>';
+          showStatus('No recorded rides found.');
+          return;
+        }
+
+        ridesData.forEach((ride, idx) => {
+          const opt = document.createElement('option');
+          opt.value = idx;
+          opt.textContent = `📅 ${ride.date} — ${ride.distance_km} km (${ride.duration})`;
+          select.appendChild(opt);
+        });
+
+        select.addEventListener('change', (e) => {
+          displayRide(ridesData[e.target.value]);
+        });
+
+        // Display first (latest) ride by default
+        displayRide(ridesData[0]);
+        showStatus(`${ridesData.length} rides loaded.`, 2500);
+      } catch (err) {
+        console.error('Error loading rides_geo.json:', err);
+        showStatus('Failed to load GPS data: ' + err.message, 5000);
+      }
+    }
+
+    function displayRide(ride) {
+      if (!ride || !ride.coords || ride.coords.length === 0) {
+        showStatus('No GPS coordinates found for this ride.', 3000);
+        return;
+      }
+
+      // Update Stats Panel
+      document.getElementById('stats-panel').style.display = 'flex';
+      document.getElementById('stat-dist').textContent = ride.distance_km;
+      document.getElementById('stat-dur').textContent = ride.duration;
+      document.getElementById('stat-spd').textContent = ride.avg_speed_kmh;
+
+      // Clear previous layers
+      if (currentPolyline) map.removeLayer(currentPolyline);
+      if (currentOutline) map.removeLayer(currentOutline);
+      if (startMarker) map.removeLayer(startMarker);
+      if (endMarker) map.removeLayer(endMarker);
+
+      const latlngs = ride.coords;
+
+      // Outer glow/contrast border
+      currentOutline = L.polyline(latlngs, {
+        color: '#00263b',
+        weight: 7,
+        opacity: 0.9,
+        lineCap: 'round',
+        lineJoin: 'round'
+      }).addTo(map);
+
+      // Inner vibrant high-contrast line
+      currentPolyline = L.polyline(latlngs, {
+        color: '#00e5ff',
+        weight: 4,
+        opacity: 0.98,
+        lineCap: 'round',
+        lineJoin: 'round'
+      }).addTo(map);
+
+      // Start Marker
+      const startCoord = latlngs[0];
+      const startIcon = L.divIcon({
+        className: '',
+        html: '<div class="custom-marker marker-start">🟢</div>',
+        iconSize: [26, 26],
+        iconAnchor: [13, 13]
+      });
+      startMarker = L.marker(startCoord, { icon: startIcon }).addTo(map);
+      startMarker.bindPopup(`<b>🟢 Start</b><br>${ride.date}`);
+
+      // Finish Marker
+      const endCoord = latlngs[latlngs.length - 1];
+      const endIcon = L.divIcon({
+        className: '',
+        html: '<div class="custom-marker marker-end">🏁</div>',
+        iconSize: [26, 26],
+        iconAnchor: [13, 13]
+      });
+      endMarker = L.marker(endCoord, { icon: endIcon }).addTo(map);
+      endMarker.bindPopup(`<b>🏁 Finish</b><br>Total: ${ride.distance_km} km (${ride.duration})`);
+
+      // Fit Bounds
+      map.fitBounds(currentPolyline.getBounds(), {
+        padding: [50, 50],
+        maxZoom: 16,
+        animate: true
+      });
+    }
+
+    window.addEventListener('DOMContentLoaded', initMap);
+  </script>
+</body>
+</html>

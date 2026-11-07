@@ -1,0 +1,145 @@
+{
+  "version": 1,
+  "minor_version": 1,
+  "key": "lovelace.dashboard_commute",
+  "data": {
+    "config": {
+      "title": "Commute",
+      "views": [
+        {
+          "title": "Bike & Commute",
+          "path": "bike-commute",
+          "icon": "mdi:bike-fast",
+          "type": "masonry",
+          "cards": [
+            {
+              "type": "horizontal-stack",
+              "cards": [
+                {
+                  "type": "weather-forecast",
+                  "entity": "weather.home",
+                  "show_current": true,
+                  "show_forecast": true
+                },
+                {
+                  "type": "glance",
+                  "title": "Cycplus M2 Status",
+                  "show_name": true,
+                  "show_state": true,
+                  "entities": [
+                    {
+                      "entity": "sensor.cycplus_m2_status",
+                      "name": "State"
+                    },
+                    {
+                      "entity": "sensor.cycplus_m2_battery",
+                      "name": "Battery"
+                    },
+                    {
+                      "entity": "sensor.cycplus_m2_disk_free",
+                      "name": "Free Memory"
+                    },
+                    {
+                      "entity": "sensor.cycplus_m2_last_sync",
+                      "name": "Last Sync"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "markdown",
+              "title": "📊 Commute & Ride Statistics",
+              "content": "{% set rides = state_attr('sensor.cycplus_m2_rides_list', 'rides') or [] %}\n{% set total_km = rides | map(attribute='distance_km') | sum | round(1) %}\n{% set total_sec = rides | map(attribute='duration_seconds') | sum %}\n{% set total_hours = (total_sec / 3600) | round(1) %}\n{% set avg_spd = ((rides | map(attribute='avg_speed_kmh') | sum) / (rides | length)) | round(1) if rides | length > 0 else 0 %}\n\n<ha-alert alert-type=\"info\">\n🚴 <b>Total Distance Cycled:</b> {{ total_km }} km<br>\n⏱️ <b>Time in Saddle:</b> {{ total_hours }} hrs ({{ (total_sec / 60) | int }} mins)<br>\n⚡ <b>Overall Average Speed:</b> {{ avg_spd }} km/h<br>\n📁 <b>Synchronized Rides:</b> {{ rides | length }} rides\n</ha-alert>"
+            },
+            {
+              "type": "iframe",
+              "title": "🗺️ GPS Route Map (Google Maps / Satellite)",
+              "url": "/local/commute_map.html?v=2",
+              "aspect_ratio": "4:5"
+            },
+            {
+              "type": "entities",
+              "title": "🚴 Latest Ride Details",
+              "entities": [
+                {
+                  "type": "attribute",
+                  "entity": "sensor.cycplus_m2_last_ride",
+                  "attribute": "date",
+                  "name": "Start Time",
+                  "icon": "mdi:calendar-clock"
+                },
+                {
+                  "type": "attribute",
+                  "entity": "sensor.cycplus_m2_last_ride",
+                  "attribute": "distance_km",
+                  "name": "Distance",
+                  "icon": "mdi:map-marker-distance",
+                  "suffix": " km"
+                },
+                {
+                  "type": "attribute",
+                  "entity": "sensor.cycplus_m2_last_ride",
+                  "attribute": "duration",
+                  "name": "Duration",
+                  "icon": "mdi:timer-outline"
+                },
+                {
+                  "type": "attribute",
+                  "entity": "sensor.cycplus_m2_last_ride",
+                  "attribute": "avg_speed_kmh",
+                  "name": "Average Speed",
+                  "icon": "mdi:speedometer",
+                  "suffix": " km/h"
+                },
+                {
+                  "type": "attribute",
+                  "entity": "sensor.cycplus_m2_last_ride",
+                  "attribute": "max_speed_kmh",
+                  "name": "Top Speed",
+                  "icon": "mdi:speedometer-slow",
+                  "suffix": " km/h"
+                }
+              ]
+            },
+            {
+              "type": "markdown",
+              "title": "📋 Downloaded Rides History",
+              "content": "<table style=\"width: 100%; border-collapse: collapse; text-align: left; font-size: 14px;\">\n<thead>\n<tr style=\"border-bottom: 2px solid var(--divider-color); color: var(--secondary-text-color);\">\n<th style=\"padding: 8px 4px;\">Date</th>\n<th style=\"padding: 8px 4px; text-align: right;\">Distance</th>\n<th style=\"padding: 8px 4px; text-align: right;\">Duration</th>\n<th style=\"padding: 8px 4px; text-align: right;\">Avg Speed</th>\n</tr>\n</thead>\n<tbody>\n{% for ride in state_attr('sensor.cycplus_m2_rides_list', 'rides') %}\n<tr style=\"border-bottom: 1px solid var(--divider-color);\">\n<td style=\"padding: 8px 4px;\">📅 {{ ride.date }}</td>\n<td style=\"padding: 8px 4px; text-align: right; font-weight: bold; color: var(--primary-color);\">{{ ride.distance_km }} km</td>\n<td style=\"padding: 8px 4px; text-align: right;\">{{ ride.duration }}</td>\n<td style=\"padding: 8px 4px; text-align: right;\">{{ ride.avg_speed_kmh }} km/h</td>\n</tr>\n{% endfor %}\n</tbody>\n</table>"
+            },
+            {
+              "type": "entities",
+              "title": "⚙️ Cycplus M2 Device Diagnostics",
+              "entities": [
+                {
+                  "entity": "sensor.cycplus_m2_status",
+                  "name": "Connection Status"
+                },
+                {
+                  "entity": "sensor.cycplus_m2_battery",
+                  "name": "Battery Level"
+                },
+                {
+                  "entity": "sensor.cycplus_m2_last_sync",
+                  "name": "Last Synchronization"
+                },
+                {
+                  "entity": "sensor.cycplus_m2_disk_free",
+                  "name": "Free Flash Memory"
+                },
+                {
+                  "entity": "sensor.cycplus_m2_total_rides",
+                  "name": "Total Rides on Device"
+                },
+                {
+                  "entity": "sensor.cycplus_m2_rides_list",
+                  "name": "Locally Saved Files"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -571,12 +571,14 @@ class CycplusBridge:
             self.data.extend(data)
             self.chunk_count += 1
 
-    async def wait_for_data(self, timeout=10.0):
-        intervals = int(timeout * 100)
+    async def wait_for_data(self, timeout=10.0, client: BleakClient = None):
+        intervals = int(timeout * 50)
         for _ in range(intervals):
+            if client and not client.is_connected:
+                return False
             if self.last_notification != AWAIT_MARKER:
                 return True
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(0.02)
         return False
 
     async def send_cmd(self, client: BleakClient, char_uuid, payload, delay=0.02):
@@ -586,7 +588,7 @@ class CycplusBridge:
     async def request_read_permission(self, client: BleakClient):
         self.last_notification = AWAIT_MARKER
         await self.send_cmd(client, CHAR_CTRL, CMD_READ_PERM)
-        return await self.wait_for_data(timeout=5.0)
+        return await self.wait_for_data(timeout=5.0, client=client)
 
     async def sync_device_session(self, client: BleakClient):
         self.publish_state("status", "Connected (Syncing...)")
@@ -604,7 +606,7 @@ class CycplusBridge:
         # 2. Read Free Disk Space
         self.last_notification = AWAIT_MARKER
         await self.send_cmd(client, CHAR_CTRL, CMD_DISKSPACE)
-        if await self.wait_for_data(timeout=5.0):
+        if await self.wait_for_data(timeout=5.0, client=client):
             if self.last_notification.startswith(b"\n"):
                 disk_str = self.last_notification[1:-1].decode("utf-8", errors="ignore").strip()
                 if "/" in disk_str:
@@ -632,12 +634,14 @@ class CycplusBridge:
 
         self.last_notification = AWAIT_MARKER
         await self.send_cmd(client, CHAR_CTRL, CMD_FILELIST)
-        await self.wait_for_data()
+        await self.wait_for_data(client=client)
 
         # Copy handshake
         self.last_notification = AWAIT_MARKER
         await self.send_cmd(client, CHAR_RX, CMD_COPY)
-        await self.wait_for_data()
+        if not await self.wait_for_data(timeout=5.0, client=client):
+            logger.error("Failed handshake for filelist")
+            return 0
         await self.send_cmd(client, CHAR_RX, CMD_COPY_OK)
 
         self.data = bytearray()
@@ -645,25 +649,52 @@ class CycplusBridge:
         self.trigger = True
         await self.send_cmd(client, CHAR_RX, CMD_COPY)
 
+        filelist_stall = 0
         while self.combine:
+            if not client.is_connected:
+                logger.warning("Device disconnected while reading filelist")
+                return 0
+
+            chunk_start = time.time()
             while self.chunk_count <= 5 and self.combine:
+                if not client.is_connected:
+                    logger.warning("Device disconnected while receiving filelist chunks")
+                    return 0
+                if time.time() - chunk_start > 5.0:
+                    logger.warning("Timeout (5s) waiting for filelist chunks")
+                    self.combine = False
+                    break
                 await asyncio.sleep(0.01)
+
+            if not self.combine:
+                break
+
             self.chunk_count = 0
-            self.data = self.data[:-2]
+            if len(self.data) >= 2:
+                self.data = self.data[:-2]
             self.trigger = True
             await self.send_cmd(client, CHAR_RX, CMD_COPY_OK)
 
+            filelist_stall += 1
+            if filelist_stall > 100:
+                logger.error("Filelist transfer stalled")
+                break
+
+        if not client.is_connected:
+            return 0
+
         self.last_notification = AWAIT_MARKER
         await self.send_cmd(client, CHAR_RX, CMD_COPY_FINISH)
-        await self.wait_for_data()
+        await self.wait_for_data(timeout=3.0, client=client)
         await self.send_cmd(client, CHAR_RX, CMD_COPY_OK)
-        await self.wait_for_data()
+        await self.wait_for_data(timeout=3.0, client=client)
 
         text = self.data.decode("utf-8", errors="ignore")
         pattern = re.compile(r"\d{14}\.fit")
-        found_files = sorted(list(set(pattern.findall(text))))
+        # Sort descending (newest rides first!) so the latest activity is downloaded immediately
+        found_files = sorted(list(set(pattern.findall(text))), reverse=True)
         self.publish_state("total_rides", len(found_files))
-        logger.info(f"Rides on M2: {found_files}")
+        logger.info(f"Rides on M2 (newest first): {found_files}")
 
         # Pause to let Cycplus M2 close the filelist transfer cleanly
         await asyncio.sleep(2.0)
@@ -671,6 +702,10 @@ class CycplusBridge:
         # 4. Download any new files
         new_downloads = 0
         for fit_file in found_files:
+            if not client.is_connected:
+                logger.warning("Device disconnected, stopping download loop.")
+                break
+
             local_path = os.path.join(self.download_dir, fit_file)
 
             # Check if file already exists locally and has non-zero size
@@ -683,6 +718,8 @@ class CycplusBridge:
             # Download with up to 2 retries
             success = False
             for attempt in range(1, 3):
+                if not client.is_connected:
+                    break
                 success = await self.download_single_file(client, fit_file, local_path)
                 if success:
                     new_downloads += 1
@@ -691,8 +728,14 @@ class CycplusBridge:
                         self.cloud.upload_file(local_path)
                         self.publish_gdrive_status()
                     break
+                if not client.is_connected:
+                    break
                 logger.warning(f"Retrying download for {fit_file} (attempt {attempt + 1})...")
                 await asyncio.sleep(2.0)
+
+            if not client.is_connected:
+                logger.warning("Device disconnected during download loop.")
+                break
 
             await asyncio.sleep(1.5)
 
@@ -709,6 +752,9 @@ class CycplusBridge:
         return new_downloads
 
     async def download_single_file(self, client: BleakClient, filename, local_path):
+        if not client or not client.is_connected:
+            return False
+
         self.reset_transfer_state()
         byte_req = bytearray([0x05]) + bytearray(filename, "utf-8") + bytearray([0x50])
         self.file_check = bytearray([0x06]) + bytearray(filename, "utf-8")
@@ -719,14 +765,15 @@ class CycplusBridge:
 
         self.last_notification = AWAIT_MARKER
         await self.send_cmd(client, CHAR_CTRL, byte_req)
-        if not await self.wait_for_data(timeout=8.0) or not self.reply_ok:
+        if not await self.wait_for_data(timeout=8.0, client=client) or not self.reply_ok:
             logger.warning(f"Device did not ACK request for {filename}")
             return False
 
         self.combine = False
         self.last_notification = AWAIT_MARKER
         await self.send_cmd(client, CHAR_RX, CMD_COPY)
-        await self.wait_for_data()
+        if not await self.wait_for_data(timeout=5.0, client=client):
+            return False
         await self.send_cmd(client, CHAR_RX, CMD_COPY_OK)
 
         self.data = bytearray()
@@ -739,10 +786,27 @@ class CycplusBridge:
         stall = 0
 
         while self.combine:
+            if not client.is_connected:
+                logger.warning(f"Device disconnected during transfer of {filename}")
+                return False
+
+            chunk_start = time.time()
             while self.chunk_count <= 5 and self.combine:
+                if not client.is_connected:
+                    logger.warning(f"Device disconnected while receiving chunks for {filename}")
+                    return False
+                if time.time() - chunk_start > 5.0:
+                    logger.warning(f"Timeout (5s) waiting for chunks on {filename}")
+                    self.combine = False
+                    break
                 await asyncio.sleep(0.01)
+
+            if not self.combine:
+                break
+
             self.chunk_count = 0
-            self.data = self.data[:-2]
+            if len(self.data) >= 2:
+                self.data = self.data[:-2]
             self.trigger = True
             await self.send_cmd(client, CHAR_RX, CMD_COPY_OK)
 
@@ -753,15 +817,18 @@ class CycplusBridge:
                 stall += 1
 
             transfer_timeout += 1
-            if transfer_timeout > 3000 or stall > 150:
+            if transfer_timeout > 3000 or stall > 50:
                 logger.error(f"Transfer stalled for {filename}")
                 break
 
+        if not client.is_connected:
+            return False
+
         self.last_notification = AWAIT_MARKER
         await self.send_cmd(client, CHAR_RX, CMD_COPY_FINISH)
-        await self.wait_for_data()
+        await self.wait_for_data(timeout=3.0, client=client)
         await self.send_cmd(client, CHAR_RX, CMD_COPY_OK)
-        await self.wait_for_data()
+        await self.wait_for_data(timeout=3.0, client=client)
 
         raw = self.data
         while raw and raw[-1] == 0x00:
@@ -772,6 +839,8 @@ class CycplusBridge:
                 f.write(raw)
             logger.info(f"✅ Successfully saved {filename} ({len(raw)} bytes)")
             return True
+        else:
+            logger.warning(f"Download incomplete or file too small for {filename} ({len(raw)} bytes)")
         return False
 
     async def main_loop(self):

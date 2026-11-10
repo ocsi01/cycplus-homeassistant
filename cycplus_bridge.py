@@ -33,6 +33,22 @@ GDRIVE_FOLDER_ID = os.getenv("GDRIVE_FOLDER_ID", "YOUR_GOOGLE_DRIVE_FOLDER_ID")
 GDRIVE_CREDS_FILE = os.getenv("GDRIVE_CREDS_FILE", "")
 RCLONE_REMOTE = os.getenv("RCLONE_REMOTE", "gdrive")
 RCLONE_CONF_FILE = os.getenv("RCLONE_CONF_FILE", "")
+
+# Load configuration from config.json if available
+for cfg_path in ["/app/config.json", "/mnt/Container/cycplus/config.json", "./config.json"]:
+    if os.path.exists(cfg_path):
+        try:
+            with open(cfg_path, "r") as f:
+                _cfg = json.load(f)
+                TARGET_NAME = _cfg.get("name", TARGET_NAME)
+                TARGET_MAC = _cfg.get("mac", TARGET_MAC)
+                MQTT_BROKER = _cfg.get("mqtt_broker", MQTT_BROKER)
+                WWW_DIR = _cfg.get("www_dir", WWW_DIR)
+                GDRIVE_FOLDER_ID = _cfg.get("gdrive_folder_id", GDRIVE_FOLDER_ID)
+                GDRIVE_CREDS_FILE = _cfg.get("gdrive_creds_file", GDRIVE_CREDS_FILE)
+                break
+        except Exception:
+            pass
 # =================================================
 
 CHAR_CTRL = "6e400004-b5a3-f393-e0a9-e50e24dcca9e"  # Control channel
@@ -362,6 +378,14 @@ class CycplusBridge:
                 "icon": "mdi:map-marker-distance"
             },
             {
+                "name": "Last Ride Cadence",
+                "id": "last_cadence",
+                "state_topic": f"{MQTT_TOPIC_PREFIX}/last_cadence",
+                "json_attributes_topic": f"{MQTT_TOPIC_PREFIX}/last_cadence_attr",
+                "unit_of_measurement": "rpm",
+                "icon": "mdi:rotate-right"
+            },
+            {
                 "name": "Downloaded Rides List",
                 "id": "rides_list",
                 "state_topic": f"{MQTT_TOPIC_PREFIX}/rides_list",
@@ -432,7 +456,7 @@ class CycplusBridge:
             data = {}
             for record in fitfile.get_messages("session"):
                 for field in record:
-                    if field.name in ["start_time", "total_distance", "total_timer_time", "avg_speed", "max_speed", "total_ascent", "total_calories", "avg_heart_rate"]:
+                    if field.name in ["start_time", "total_distance", "total_timer_time", "avg_speed", "max_speed", "total_ascent", "total_calories", "avg_heart_rate", "avg_cadence", "max_cadence"]:
                         data[field.name] = field.value
 
             dist_km = round((data.get("total_distance") or 0) / 1000.0, 2)
@@ -445,6 +469,17 @@ class CycplusBridge:
             st_raw = data.get("start_time")
             st_str = st_raw.strftime("%Y-%m-%d %H:%M:%S") if st_raw else os.path.basename(filepath)
 
+            avg_cad = data.get("avg_cadence")
+            max_cad = data.get("max_cadence")
+            if avg_cad is None:
+                cad_vals = [r.get_value("cadence") for r in fitfile.get_messages("record") if r.get_value("cadence") is not None and r.get_value("cadence") > 0]
+                if cad_vals:
+                    avg_cad = round(sum(cad_vals) / len(cad_vals))
+                    max_cad = max(cad_vals)
+                else:
+                    avg_cad = 0
+                    max_cad = 0
+
             return {
                 "filename": os.path.basename(filepath),
                 "date": st_str,
@@ -453,6 +488,8 @@ class CycplusBridge:
                 "duration_seconds": dur_s,
                 "avg_speed_kmh": avg_spd,
                 "max_speed_kmh": max_spd,
+                "avg_cadence_rpm": int(avg_cad or 0),
+                "max_cadence_rpm": int(max_cad or 0),
                 "ascent_m": data.get("total_ascent") or 0,
                 "calories": data.get("total_calories") or 0,
                 "size_kb": round(os.path.getsize(filepath) / 1024.0, 1)
@@ -465,6 +502,8 @@ class CycplusBridge:
                 "distance_km": 0,
                 "duration": "N/A",
                 "avg_speed_kmh": 0,
+                "avg_cadence_rpm": 0,
+                "max_cadence_rpm": 0,
                 "size_kb": round(os.path.getsize(filepath) / 1024.0, 1)
             }
 
@@ -481,6 +520,14 @@ class CycplusBridge:
             latest = rides[0]
             self.publish_state("last_ride", f"{latest['distance_km']} km ({latest['duration']})")
             self.publish_attributes("last_ride", latest)
+            latest_cad = latest.get("avg_cadence_rpm", 0)
+            self.publish_state("last_cadence", latest_cad)
+            self.publish_attributes("last_cadence", {
+                "avg_cadence_rpm": latest.get("avg_cadence_rpm", 0),
+                "max_cadence_rpm": latest.get("max_cadence_rpm", 0),
+                "ride_date": latest.get("date"),
+                "filename": latest.get("filename")
+            })
         self.export_rides_geo(rides, fit_paths)
         logger.info(f"Published {len(rides)} parsed rides to Home Assistant.")
 
@@ -514,6 +561,8 @@ class CycplusBridge:
                     "distance_km": ride["distance_km"],
                     "duration": ride["duration"],
                     "avg_speed_kmh": ride["avg_speed_kmh"],
+                    "avg_cadence_rpm": ride.get("avg_cadence_rpm", 0),
+                    "max_cadence_rpm": ride.get("max_cadence_rpm", 0),
                     "points_count": len(sampled),
                     "coords": sampled
                 })
@@ -848,6 +897,7 @@ class CycplusBridge:
         presence_state = "AWAY"
         missed_scans = 0
         empty_sync_count = 0
+        total_synced_this_arrival = 0
 
         while True:
             try:
@@ -855,6 +905,10 @@ class CycplusBridge:
 
                 if device:
                     missed_scans = 0
+                    if presence_state == "AWAY":
+                        total_synced_this_arrival = 0
+                        empty_sync_count = 0
+
                     if presence_state == "PRESENT_SYNCED":
                         # Bike is parked and already synced.
                         # Do NOT open GATT connection to avoid draining battery!
@@ -877,26 +931,29 @@ class CycplusBridge:
                             logger.info("Session complete. Disconnected cleanly.")
 
                     if new_downloads and new_downloads > 0:
-                        presence_state = "PRESENT_SYNCED"
+                        total_synced_this_arrival += new_downloads
                         empty_sync_count = 0
-                        self.publish_state("status", f"Home (Synced: {new_downloads} new rides)")
-                        logger.info("✅ Synced new ride(s). Entering sleep lock until next departure.")
+                        self.publish_state("status", f"Home (Synced {new_downloads} ride(s). Verifying for more in 30s...)")
+                        logger.info(f"✅ Synced {new_downloads} ride(s) ({total_synced_this_arrival} total this arrival). Verifying for subsequent saves in 30s...")
+                        await asyncio.sleep(30.0)
                     else:
                         empty_sync_count += 1
-                        if empty_sync_count < 3:
-                            logger.info(f"No new rides in filelist yet ({empty_sync_count}/3). Rider might still be saving. Retrying in 30s...")
+                        if empty_sync_count < 2:
+                            logger.info(f"No new rides in filelist ({empty_sync_count}/2). Waiting for ride to be saved / stopped. Retrying in 30s...")
                             self.publish_state("status", "Waiting for ride to be saved / stopped...")
                             await asyncio.sleep(30.0)
                         else:
                             presence_state = "PRESENT_SYNCED"
-                            self.publish_state("status", "Home (Synced)")
-                            logger.info("Already up to date. Entering sleep lock until next departure.")
+                            final_status = f"Home (Synced: {total_synced_this_arrival} new rides)" if total_synced_this_arrival > 0 else "Home (Synced)"
+                            self.publish_state("status", final_status)
+                            logger.info("All rides verified and up to date. Entering sleep lock until next departure.")
                             await asyncio.sleep(25.0)
                 else:
                     missed_scans += 1
                     if presence_state == "PRESENT_SYNCED" and missed_scans >= 3:
                         presence_state = "AWAY"
                         empty_sync_count = 0
+                        total_synced_this_arrival = 0
                         self.publish_state("status", "Standby (Waiting for bike)")
                         logger.info("M2 powered off or departed. Bridge armed for next arrival.")
 
